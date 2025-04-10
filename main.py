@@ -1,8 +1,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from datetime import datetime
-import json
 import uuid
+import json
 
 app = FastAPI()
 
@@ -10,8 +10,7 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections = {}
 
-    async def connect(self, websocket: WebSocket, user_id: str, username: str):
-        await websocket.accept()
+    async def connect(self, user_id: str, username: str, websocket: WebSocket):
         self.active_connections[user_id] = {
             "websocket": websocket,
             "username": username
@@ -32,7 +31,7 @@ manager = ConnectionManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    # Принимаем соединение ПЕРВЫМ ДЕЙСТВИЕМ
+    # Принимаем соединение сразу
     await websocket.accept()
     
     try:
@@ -40,16 +39,16 @@ async def websocket_endpoint(websocket: WebSocket):
         username = await websocket.receive_text()
         user_id = str(uuid.uuid4())
         
-        # Регистрируем подключение
-        await manager.connect(websocket, user_id, username)
+        # Регистрируем пользователя
+        await manager.connect(user_id, username, websocket)
         
-        # Уведомляем всех о новом пользователе
+        # Уведомляем о входе
         await manager.broadcast({
             "system": True,
             "message": f"{username} присоединился к чату"
         })
 
-        # Основной цикл обработки сообщений
+        # Основной цикл
         while True:
             data = await websocket.receive_text()
             message = {
@@ -84,7 +83,6 @@ async def get():
                 <input type="text" id="messageInput">
                 <button onclick="sendMessage()">Отправить</button>
             </div>
-
             <script>
                 let username = localStorage.getItem('chat_username');
                 if (!username) {
@@ -94,8 +92,10 @@ async def get():
 
                 const ws = new WebSocket(`ws://${window.location.host}/ws`);
                 
-                // Отправляем ник при подключении
-                ws.onopen = () => ws.send(username);
+                // Отправляем ник после открытия соединения
+                ws.onopen = () => {
+                    ws.send(username);
+                };
                 
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
@@ -126,7 +126,6 @@ async def get():
                     }
                 }
 
-                // Отправка по Enter
                 document.getElementById("messageInput").addEventListener("keypress", (e) => {
                     if (e.key === "Enter") sendMessage();
                 });
