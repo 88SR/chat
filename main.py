@@ -32,13 +32,24 @@ manager = ConnectionManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    user_id = str(uuid.uuid4())
-    
-    # Принимаем ник при подключении
-    username = await websocket.receive_text()
-    await manager.connect(websocket, user_id, username)
+    # Принимаем соединение ПЕРВЫМ ДЕЙСТВИЕМ
+    await websocket.accept()
     
     try:
+        # Получаем никнейм
+        username = await websocket.receive_text()
+        user_id = str(uuid.uuid4())
+        
+        # Регистрируем подключение
+        await manager.connect(websocket, user_id, username)
+        
+        # Уведомляем всех о новом пользователе
+        await manager.broadcast({
+            "system": True,
+            "message": f"{username} присоединился к чату"
+        })
+
+        # Основной цикл обработки сообщений
         while True:
             data = await websocket.receive_text()
             message = {
@@ -47,6 +58,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "time": datetime.now().strftime("%H:%M:%S")
             }
             await manager.broadcast(message)
+            
     except WebSocketDisconnect:
         manager.disconnect(user_id)
         await manager.broadcast({
