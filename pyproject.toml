@@ -1,0 +1,19 @@
+[project]
+name = "pavlin"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[all] (>=0.115.12,<0.116.0)",
+    "sqlalchemy (>=2.0.40,<3.0.0)",
+    "redis (>=5.2.1,<6.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
