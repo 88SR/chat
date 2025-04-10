@@ -13,7 +13,7 @@ html = """
     </head>
     <body>
         <script>
-            const ws = new WebSocket("ws://localhost:8000/ws");
+            const ws = new WebSocket("ws://194.87.235.65/ws");
             ws.onmessage = (event) => {
                 const messages = document.getElementById('messages');
                 const message = document.createElement('li');
