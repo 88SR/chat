@@ -1,61 +1,123 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-import asyncio
+from datetime import datetime
+import json
+import uuid
 
 app = FastAPI()
 
-# Класс для управления подключениями
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = []
+        self.active_connections = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user_id: str, username: str):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections[user_id] = {
+            "websocket": websocket,
+            "username": username
+        }
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+    def disconnect(self, user_id: str):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
 
-    async def broadcast(self, message: str):
-        # Отправка сообщения всем клиентам
-        for connection in self.active_connections:
-            await connection.send_text(message)
+    async def broadcast(self, message: dict):
+        for user_id in list(self.active_connections.keys()):
+            try:
+                await self.active_connections[user_id]["websocket"].send_json(message)
+            except:
+                self.disconnect(user_id)
 
 manager = ConnectionManager()
 
-# WebSocket-обработчик
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    user_id = str(uuid.uuid4())
+    
+    # Принимаем ник при подключении
+    username = await websocket.receive_text()
+    await manager.connect(websocket, user_id, username)
+    
     try:
         while True:
             data = await websocket.receive_text()
-            await manager.broadcast(f"Пользователь: {data}")  # Рассылка всем
+            message = {
+                "username": username,
+                "message": data,
+                "time": datetime.now().strftime("%H:%M:%S")
+            }
+            await manager.broadcast(message)
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(user_id)
+        await manager.broadcast({
+            "system": True,
+            "message": f"{username} покинул чат"
+        })
 
-# HTML-страница
 @app.get("/")
 async def get():
     return HTMLResponse("""
     <html>
+        <head>
+            <style>
+                .chat-box { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .message { margin: 10px 0; padding: 8px; border-radius: 5px; background: #f0f0f0; }
+                .time { font-size: 0.8em; color: #666; }
+                .username { font-weight: bold; color: #2c3e50; }
+            </style>
+        </head>
         <body>
-            <div id="messages"></div>
-            <input type="text" id="messageInput">
-            <button onclick="sendMessage()">Отправить</button>
+            <div class="chat-box">
+                <div id="messages"></div>
+                <input type="text" id="messageInput">
+                <button onclick="sendMessage()">Отправить</button>
+            </div>
+
             <script>
-                const ws = new WebSocket("ws://194.87.235.65/ws");
+                let username = localStorage.getItem('chat_username');
+                if (!username) {
+                    username = prompt('Введите ваш ник:');
+                    localStorage.setItem('chat_username', username);
+                }
+
+                const ws = new WebSocket(`ws://${window.location.host}/ws`);
+                
+                // Отправляем ник при подключении
+                ws.onopen = () => ws.send(username);
+                
                 ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
                     const messages = document.getElementById("messages");
-                    const message = document.createElement("div");
-                    message.textContent = event.data;
-                    messages.appendChild(message);
+                    
+                    const messageDiv = document.createElement("div");
+                    messageDiv.className = "message";
+                    
+                    if (data.system) {
+                        messageDiv.innerHTML = `<em>${data.message}</em>`;
+                    } else {
+                        messageDiv.innerHTML = `
+                            <span class="username">${data.username}</span>
+                            <span class="time">[${data.time}]</span><br>
+                            ${data.message}
+                        `;
+                    }
+                    
+                    messages.appendChild(messageDiv);
+                    messages.scrollTop = messages.scrollHeight;
                 };
+
                 function sendMessage() {
                     const input = document.getElementById("messageInput");
-                    ws.send(input.value);
-                    input.value = "";
+                    if (input.value.trim()) {
+                        ws.send(input.value);
+                        input.value = "";
+                    }
                 }
+
+                // Отправка по Enter
+                document.getElementById("messageInput").addEventListener("keypress", (e) => {
+                    if (e.key === "Enter") sendMessage();
+                });
             </script>
         </body>
     </html>
