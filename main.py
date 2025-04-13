@@ -1,135 +1,47 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+# main.py
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
-from datetime import datetime
-import uuid
-import json
+
 
 app = FastAPI()
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = {}
-
-    async def connect(self, user_id: str, username: str, websocket: WebSocket):
-        self.active_connections[user_id] = {
-            "websocket": websocket,
-            "username": username
-        }
-
-    def disconnect(self, user_id: str):
-        if user_id in self.active_connections:
-            del self.active_connections[user_id]
-
-    async def broadcast(self, message: dict):
-        for user_id in list(self.active_connections.keys()):
-            try:
-                await self.active_connections[user_id]["websocket"].send_json(message)
-            except:
-                self.disconnect(user_id)
-
-manager = ConnectionManager()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    # Принимаем соединение сразу
-    await websocket.accept()
-    
-    try:
-        # Получаем никнейм
-        username = await websocket.receive_text()
-        user_id = str(uuid.uuid4())
-        
-        # Регистрируем пользователя
-        await manager.connect(user_id, username, websocket)
-        
-        # Уведомляем о входе
-        await manager.broadcast({
-            "system": True,
-            "message": f"{username} присоединился к чату"
-        })
-
-        # Основной цикл
-        while True:
-            data = await websocket.receive_text()
-            message = {
-                "username": username,
-                "message": data,
-                "time": datetime.now().strftime("%H:%M:%S")
+html = """
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WebSocket Chat</title>
+    </head>
+    <body>
+        <script>
+            const ws = new WebSocket("ws://localhost:8000/ws");
+            ws.onmessage = (event) => {
+                const messages = document.getElementById('messages');
+                const message = document.createElement('li');
+                message.textContent = event.data;
+                messages.appendChild(message);
+            };
+            function sendMessage() {
+                const input = document.getElementById("messageText");
+                ws.send(input.value);
+                input.value = '';
             }
-            await manager.broadcast(message)
-            
-    except WebSocketDisconnect:
-        manager.disconnect(user_id)
-        await manager.broadcast({
-            "system": True,
-            "message": f"{username} покинул чат"
-        })
+        </script>
+        <input type="text" id="messageText"/>
+        <button onclick="sendMessage()">Send</button>
+        <ul id="messages"></ul>
+    </body>
+</html>
+"""
 
 @app.get("/")
 async def get():
-    return HTMLResponse("""
-    <html>
-        <head>
-            <style>
-                .chat-box { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .message { margin: 10px 0; padding: 8px; border-radius: 5px; background: #f0f0f0; }
-                .time { font-size: 0.8em; color: #666; }
-                .username { font-weight: bold; color: #2c3e50; }
-            </style>
-        </head>
-        <body>
-            <div class="chat-box">
-                <div id="messages"></div>
-                <input type="text" id="messageInput">
-                <button onclick="sendMessage()">Отправить</button>
-            </div>
-            <script>
-                let username = localStorage.getItem('chat_username');
-                if (!username) {
-                    username = prompt('Введите ваш ник:');
-                    localStorage.setItem('chat_username', username);
-                }
+    return HTMLResponse(html)
 
-                const ws = new WebSocket(`ws://${window.location.host}/ws`);
-                
-                // Отправляем ник после открытия соединения
-                ws.onopen = () => {
-                    ws.send(username);
-                };
-                
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    const messages = document.getElementById("messages");
-                    
-                    const messageDiv = document.createElement("div");
-                    messageDiv.className = "message";
-                    
-                    if (data.system) {
-                        messageDiv.innerHTML = `<em>${data.message}</em>`;
-                    } else {
-                        messageDiv.innerHTML = `
-                            <span class="username">${data.username}</span>
-                            <span class="time">[${data.time}]</span><br>
-                            ${data.message}
-                        `;
-                    }
-                    
-                    messages.appendChild(messageDiv);
-                    messages.scrollTop = messages.scrollHeight;
-                };
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_text()
+        await websocket.send_text(f"Message : {data}")
 
-                function sendMessage() {
-                    const input = document.getElementById("messageInput");
-                    if (input.value.trim()) {
-                        ws.send(input.value);
-                        input.value = "";
-                    }
-                }
-
-                document.getElementById("messageInput").addEventListener("keypress", (e) => {
-                    if (e.key === "Enter") sendMessage();
-                });
-            </script>
-        </body>
-    </html>
-    """)
+# Запуск: uvicorn main:app --reload
